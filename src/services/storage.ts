@@ -1,4 +1,4 @@
-import { Product, SaleTransaction, Expense, StockMovement, ShopSettings, HeldOrder, UserProfile } from '../types';
+import { Product, SaleTransaction, Expense, StockMovement, ShopSettings, HeldOrder, UserProfile, DeviceSecurityConfig } from '../types';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'shopkeep_products_v7',
@@ -9,6 +9,16 @@ const STORAGE_KEYS = {
   HELD_ORDERS: 'shopkeep_held_orders_v6',
   PROFILES: 'shopkeep_profiles_v7',
   ACTIVE_PROFILE: 'shopkeep_active_profile_v7',
+  DEVICE_LOCK: 'shopkeep_device_lock_v2',
+  THIS_DEVICE_ID: 'shopkeep_machine_id_v2',
+};
+
+export const DEFAULT_DEVICE_SECURITY: DeviceSecurityConfig = {
+  isDeviceLockEnabled: false,
+  authorizedDeviceId: '',
+  authorizedDeviceName: 'Shop Counter Computer (Primary)',
+  authorizedAt: undefined,
+  isLocalOnlyMode: true,
 };
 
 export const DEFAULT_PROFILES: UserProfile[] = [
@@ -1012,5 +1022,101 @@ export const storageService = {
     this.saveActiveProfileId('prof-owner');
     this.saveMovements([]);
     this.saveHeldOrders([]);
+  },
+
+  // Machine Fingerprint & Device Authorization for Shop PC Only
+  getThisDeviceId(): string {
+    try {
+      let id = localStorage.getItem(STORAGE_KEYS.THIS_DEVICE_ID);
+      if (!id) {
+        id = 'PC-SA-' + Math.random().toString(36).substring(2, 8).toUpperCase() + '-' + Date.now().toString(36).toUpperCase();
+        localStorage.setItem(STORAGE_KEYS.THIS_DEVICE_ID, id);
+      }
+      return id;
+    } catch {
+      return 'PC-SA-DEFAULT';
+    }
+  },
+
+  getDeviceSecurityConfig(): DeviceSecurityConfig {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.DEVICE_LOCK);
+      if (!data) return DEFAULT_DEVICE_SECURITY;
+      return JSON.parse(data);
+    } catch {
+      return DEFAULT_DEVICE_SECURITY;
+    }
+  },
+
+  saveDeviceSecurityConfig(config: DeviceSecurityConfig): void {
+    localStorage.setItem(STORAGE_KEYS.DEVICE_LOCK, JSON.stringify(config));
+    try {
+      fetch('/api/device-lock/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      }).catch(() => {});
+    } catch {}
+  },
+
+  isDeviceAuthorized(): boolean {
+    const config = this.getDeviceSecurityConfig();
+    if (!config.isDeviceLockEnabled) return true;
+    if (!config.authorizedDeviceId) return true; // not bound yet
+    const currentId = this.getThisDeviceId();
+    return currentId === config.authorizedDeviceId;
+  },
+
+  authorizeThisDevice(customName?: string): DeviceSecurityConfig {
+    const currentId = this.getThisDeviceId();
+    const updated: DeviceSecurityConfig = {
+      isDeviceLockEnabled: true,
+      authorizedDeviceId: currentId,
+      authorizedDeviceName: customName || 'SA Brothers Counter PC (Authorized)',
+      authorizedAt: new Date().toISOString(),
+      isLocalOnlyMode: true,
+    };
+    this.saveDeviceSecurityConfig(updated);
+    return updated;
+  },
+
+  unauthorizeDevice(): DeviceSecurityConfig {
+    const updated: DeviceSecurityConfig = {
+      isDeviceLockEnabled: false,
+      authorizedDeviceId: '',
+      authorizedDeviceName: 'Unassigned',
+      authorizedAt: undefined,
+      isLocalOnlyMode: true,
+    };
+    this.saveDeviceSecurityConfig(updated);
+    return updated;
+  },
+
+  // Save everything to computer hard drive (/local_database/)
+  saveToHardDrive(allData?: {
+    products?: Product[];
+    transactions?: SaleTransaction[];
+    expenses?: Expense[];
+    movements?: StockMovement[];
+    settings?: ShopSettings;
+    profiles?: UserProfile[];
+  }): void {
+    try {
+      const payload = {
+        products: allData?.products || this.getProducts(),
+        transactions: allData?.transactions || this.getTransactions(),
+        expenses: allData?.expenses || this.getExpenses(),
+        movements: allData?.movements || this.getMovements(),
+        settings: allData?.settings || this.getSettings(),
+        profiles: allData?.profiles || this.getProfiles(),
+        deviceLock: this.getDeviceSecurityConfig(),
+      };
+
+      fetch('/api/local-db/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    } catch {}
   }
 };

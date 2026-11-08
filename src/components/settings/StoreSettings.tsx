@@ -22,6 +22,10 @@ import {
   Server,
   FileCode2,
   ExternalLink,
+  HardDrive,
+  Monitor,
+  PlayCircle,
+  FolderCheck,
 } from 'lucide-react';
 
 const CURRENCIES = [
@@ -52,12 +56,32 @@ export const StoreSettingsView: React.FC = () => {
     updateProfileName,
     isOwner,
     openProfileModal,
+    deviceSecurity,
+    thisDeviceId,
+    authorizeCurrentComputer,
+    unauthorizeComputer,
+    saveDatabaseToHardDriveNow,
+    hardDriveLastSaved,
   } = useShop();
 
   const [form, setForm] = useState({ ...settings });
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [showResetModal, setShowResetModal] = useState(false);
+
+  // Hard Drive Saving State
+  const [syncingHardDrive, setSyncingHardDrive] = useState(false);
+  const [hardDriveSuccess, setHardDriveSuccess] = useState<string | null>(null);
+
+  const handleManualSaveHardDrive = async () => {
+    setSyncingHardDrive(true);
+    const ok = await saveDatabaseToHardDriveNow();
+    setSyncingHardDrive(false);
+    if (ok) {
+      setHardDriveSuccess('All store data successfully written to this computer hard drive (./local_database/)');
+      setTimeout(() => setHardDriveSuccess(null), 3500);
+    }
+  };
 
   // Profile PIN edit states
   const [ownerPinEdit, setOwnerPinEdit] = useState('');
@@ -519,6 +543,151 @@ export const StoreSettingsView: React.FC = () => {
           </button>
         </div>
       </form>
+
+      {/* SHOP COMPUTER ONLY & LOCAL HARD DRIVE STORAGE */}
+      <div className="bg-white dark:bg-slate-900 border-2 border-emerald-500/30 dark:border-emerald-500/20 rounded-2xl p-6 space-y-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <HardDrive className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                  Shop Computer Terminal &amp; Local Hard Drive Storage
+                </h2>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  100% Offline PC Mode
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Configured to run strictly on your shop computer. All sales, expenses, and inventory are saved permanently to this PC hard disk in <code className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded font-mono text-[11px] text-slate-800 dark:text-slate-200">./local_database/</code>.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleManualSaveHardDrive}
+              disabled={syncingHardDrive}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 disabled:opacity-50"
+            >
+              <HardDrive className="w-3.5 h-3.5" />
+              <span>{syncingHardDrive ? 'Saving to Hard Drive...' : 'Save Database to PC Now'}</span>
+            </button>
+            <a
+              href="/api/download-launcher"
+              download="START_SHOP_POS.bat"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 rounded-xl text-xs font-bold shadow-sm transition-colors"
+              title="Double-click this file on Windows Desktop to launch POS software"
+            >
+              <PlayCircle className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Download Desktop Launcher (.bat)</span>
+            </a>
+          </div>
+        </div>
+
+        {hardDriveSuccess && (
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{hardDriveSuccess}</span>
+          </div>
+        )}
+
+        {/* 3 Status Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <div className="text-slate-500 flex items-center justify-between">
+              <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Monitor className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Shop Terminal Binding</span>
+              </span>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                deviceSecurity.isDeviceLockEnabled
+                  ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+              }`}>
+                {deviceSecurity.isDeviceLockEnabled ? 'Locked to This PC' : 'All Devices Allowed'}
+              </span>
+            </div>
+            <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 space-y-0.5 pt-1">
+              <div>This PC ID: <strong className="text-slate-900 dark:text-white font-bold">{thisDeviceId}</strong></div>
+              <div>Bound PC: <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{deviceSecurity.authorizedDeviceName || 'Unassigned'}</span></div>
+            </div>
+          </div>
+
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <div className="text-slate-500 flex items-center justify-between">
+              <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <HardDrive className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Local Hard Disk Location</span>
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
+                JSON DB
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-600 dark:text-slate-400 space-y-0.5 pt-1">
+              <div>Path: <code className="font-mono text-slate-900 dark:text-white text-[10px]">./local_database/</code></div>
+              <div>Auto-Sync: <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Active on every sale/edit</span></div>
+              <div>Last Written: <span className="text-slate-800 dark:text-slate-200 font-mono">{hardDriveLastSaved || 'Just now'}</span></div>
+            </div>
+          </div>
+
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <div className="text-slate-500 flex items-center justify-between">
+              <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <FolderCheck className="w-3.5 h-3.5 text-blue-500" />
+                <span>Windows Desktop App</span>
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                Launcher Ready
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-600 dark:text-slate-400 space-y-0.5 pt-1">
+              <div>Script: <code className="font-mono text-slate-900 dark:text-white text-[10px]">START_SHOP_POS.bat</code></div>
+              <div>App Mode: <span className="text-slate-800 dark:text-slate-200">Frameless Desktop Window</span></div>
+              <div>Backup Tool: <a href="/api/download-backup-bat" download="BACKUP_LOCAL_DATABASE.bat" className="text-emerald-600 dark:text-emerald-400 underline font-medium">Download Backup .bat</a></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Lock / Unlock Toggle Bar for Store Owner */}
+        <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-200 dark:border-slate-800">
+          <div className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+            {deviceSecurity.isDeviceLockEnabled ? (
+              <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                ✓ <strong>Enforced:</strong> Only this computer can open and operate the POS register. All other devices will see a locked screen.
+              </span>
+            ) : (
+              <span className="text-amber-700 dark:text-amber-400 font-medium">
+                ⚠️ <strong>Open:</strong> Lock is currently disabled. Click below to lock this system exclusively to this shop computer.
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {deviceSecurity.isDeviceLockEnabled ? (
+              <button
+                type="button"
+                onClick={unauthorizeComputer}
+                className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition-colors"
+              >
+                Disable Device Lock (Allow Any PC)
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => authorizeCurrentComputer('SA Brothers Counter PC')}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs"
+              >
+                Lock POS to This Computer Only
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Dedicated Hosting & Domain Database Deployment (SQL & PHP) */}
       <div className="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-900/60 rounded-xl p-5 space-y-4 shadow-xs">

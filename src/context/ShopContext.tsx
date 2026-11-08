@@ -11,8 +11,9 @@ import {
   EndOfDayReport,
   SaleItem,
   UserProfile,
+  DeviceSecurityConfig,
 } from '../types';
-import { storageService, DEFAULT_SETTINGS, DEFAULT_PROFILES } from '../services/storage';
+import { storageService, DEFAULT_SETTINGS, DEFAULT_PROFILES, DEFAULT_DEVICE_SECURITY } from '../services/storage';
 
 interface ShopContextType {
   products: Product[];
@@ -46,6 +47,15 @@ interface ShopContextType {
   addProductInitialCategory: string;
   openAddProductModal: (initialCategory?: string) => void;
   closeAddProductModal: () => void;
+
+  // Shop Computer Only & Hard Drive Persistence
+  deviceSecurity: DeviceSecurityConfig;
+  isThisDeviceAuthorized: boolean;
+  thisDeviceId: string;
+  authorizeCurrentComputer: (name?: string) => void;
+  unauthorizeComputer: () => void;
+  saveDatabaseToHardDriveNow: () => Promise<boolean>;
+  hardDriveLastSaved: string | null;
   
   // Cart Actions
   addToCart: (product: Product, quantity?: number) => void;
@@ -135,6 +145,56 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Manual Add Product Modal State (For Owner adding items anywhere)
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState<boolean>(false);
   const [addProductInitialCategory, setAddProductInitialCategory] = useState<string>('Stationery');
+
+  // Shop Computer Only & Hard Drive Persistence State
+  const [deviceSecurity, setDeviceSecurity] = useState<DeviceSecurityConfig>(() => storageService.getDeviceSecurityConfig());
+  const [thisDeviceId] = useState<string>(() => storageService.getThisDeviceId());
+  const [isThisDeviceAuthorized, setIsThisDeviceAuthorized] = useState<boolean>(() => storageService.isDeviceAuthorized());
+  const [hardDriveLastSaved, setHardDriveLastSaved] = useState<string | null>(() => new Date().toLocaleTimeString());
+
+  // Auto-save everything to computer hard drive (/local_database/) whenever state changes
+  useEffect(() => {
+    storageService.saveToHardDrive({ products, transactions, expenses, movements, settings, profiles });
+    setHardDriveLastSaved(new Date().toLocaleTimeString());
+  }, [products, transactions, expenses, movements, settings, profiles]);
+
+  const authorizeCurrentComputer = (customName?: string) => {
+    const updated = storageService.authorizeThisDevice(customName);
+    setDeviceSecurity(updated);
+    setIsThisDeviceAuthorized(true);
+  };
+
+  const unauthorizeComputer = () => {
+    const updated = storageService.unauthorizeDevice();
+    setDeviceSecurity(updated);
+    setIsThisDeviceAuthorized(true);
+  };
+
+  const saveDatabaseToHardDriveNow = async (): Promise<boolean> => {
+    try {
+      const payload = {
+        products,
+        transactions,
+        expenses,
+        movements,
+        settings,
+        profiles,
+        deviceLock: deviceSecurity,
+      };
+      const res = await fetch('/api/local-db/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        setHardDriveLastSaved(new Date().toLocaleTimeString());
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
 
   // Sync to local storage on change
   useEffect(() => {
@@ -877,6 +937,15 @@ export const ShopProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         addProductInitialCategory,
         openAddProductModal,
         closeAddProductModal,
+
+        // Shop Computer Only & Hard Drive Persistence
+        deviceSecurity,
+        isThisDeviceAuthorized,
+        thisDeviceId,
+        authorizeCurrentComputer,
+        unauthorizeComputer,
+        saveDatabaseToHardDriveNow,
+        hardDriveLastSaved,
       }}
     >
       {children}

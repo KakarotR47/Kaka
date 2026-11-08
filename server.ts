@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 
@@ -14,6 +15,16 @@ process.env.VITE_CONFIG_NATIVE_IGNORE_WARNING = 'true';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Ensure local hard drive database directory exists on shop computer
+const LOCAL_DB_DIR = path.resolve(__dirname, 'local_database');
+const LOCAL_BACKUP_DIR = path.resolve(LOCAL_DB_DIR, 'backups');
+if (!fs.existsSync(LOCAL_DB_DIR)) {
+  fs.mkdirSync(LOCAL_DB_DIR, { recursive: true });
+}
+if (!fs.existsSync(LOCAL_BACKUP_DIR)) {
+  fs.mkdirSync(LOCAL_BACKUP_DIR, { recursive: true });
+}
 
 const app = express();
 
@@ -42,11 +53,180 @@ function resolvePort(): number {
 
 const PORT = resolvePort();
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '25mb' }));
 
-// Health check endpoint
+// Health check endpoint with local storage indicators
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    mode: 'local-shop-pc',
+    hardDriveStorage: fs.existsSync(LOCAL_DB_DIR),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ====================================================================
+// LOCAL HARD DRIVE DATABASE PERSISTENCE ENDPOINTS (SAVES DATA ON PC)
+// ====================================================================
+
+// Helper to write file safely
+function saveLocalJson(filename: string, data: any) {
+  const filePath = path.resolve(LOCAL_DB_DIR, filename);
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function readLocalJson<T>(filename: string, fallback: T): T {
+  const filePath = path.resolve(LOCAL_DB_DIR, filename);
+  if (!fs.existsSync(filePath)) return fallback;
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(content) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+// 1. Get status of files saved on computer hard drive
+app.get('/api/local-db/status', (_req, res) => {
+  try {
+    const files = ['products.json', 'transactions.json', 'expenses.json', 'movements.json', 'settings.json', 'profiles.json', 'device_lock.json'];
+    const status: Record<string, any> = {};
+
+    files.forEach((file) => {
+      const p = path.resolve(LOCAL_DB_DIR, file);
+      if (fs.existsSync(p)) {
+        const stat = fs.statSync(p);
+        status[file] = { exists: true, sizeBytes: stat.size, lastModified: stat.mtime };
+      } else {
+        status[file] = { exists: false };
+      }
+    });
+
+    const backupsCount = fs.existsSync(LOCAL_BACKUP_DIR) ? fs.readdirSync(LOCAL_BACKUP_DIR).length : 0;
+
+    res.json({
+      success: true,
+      directory: LOCAL_DB_DIR,
+      files: status,
+      totalBackupsOnDisk: backupsCount,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 2. Load all database tables from local hard drive
+app.get('/api/local-db/load', (_req, res) => {
+  try {
+    const data = {
+      products: readLocalJson('products.json', null),
+      transactions: readLocalJson('transactions.json', null),
+      expenses: readLocalJson('expenses.json', null),
+      movements: readLocalJson('movements.json', null),
+      settings: readLocalJson('settings.json', null),
+      profiles: readLocalJson('profiles.json', null),
+      deviceLock: readLocalJson('device_lock.json', {
+        isDeviceLockEnabled: false,
+        authorizedDeviceId: '',
+        authorizedDeviceName: 'Shop Counter PC (Default)',
+      }),
+    };
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 3. Save / Sync entire database or tables directly to local computer disk
+app.post('/api/local-db/sync', (req, res) => {
+  try {
+    const { products, transactions, expenses, movements, settings, profiles, deviceLock } = req.body;
+
+    if (products) saveLocalJson('products.json', products);
+    if (transactions) saveLocalJson('transactions.json', transactions);
+    if (expenses) saveLocalJson('expenses.json', expenses);
+    if (movements) saveLocalJson('movements.json', movements);
+    if (settings) saveLocalJson('settings.json', settings);
+    if (profiles) saveLocalJson('profiles.json', profiles);
+    if (deviceLock) saveLocalJson('device_lock.json', deviceLock);
+
+    res.json({
+      success: true,
+      message: 'All data successfully saved to shop computer hard disk',
+      timestamp: new Date().toISOString(),
+      savedTo: LOCAL_DB_DIR
+    });
+  } catch (err: any) {
+    console.error('Failed to sync to local hard drive:', err);
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 4. Create an automated local hard drive backup snapshot
+app.post('/api/local-db/create-backup', (req, res) => {
+  try {
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupFileName = `sa_brothers_backup_${dateStr}.json`;
+    const backupFilePath = path.resolve(LOCAL_BACKUP_DIR, backupFileName);
+
+    const fullDump = {
+      backupDate: new Date().toISOString(),
+      products: readLocalJson('products.json', []),
+      transactions: readLocalJson('transactions.json', []),
+      expenses: readLocalJson('expenses.json', []),
+      movements: readLocalJson('movements.json', []),
+      settings: readLocalJson('settings.json', {}),
+      profiles: readLocalJson('profiles.json', []),
+      deviceLock: readLocalJson('device_lock.json', {}),
+    };
+
+    fs.writeFileSync(backupFilePath, JSON.stringify(fullDump, null, 2), 'utf8');
+
+    res.json({
+      success: true,
+      message: `Backup snapshot saved to ${backupFileName}`,
+      filePath: backupFilePath
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// 5. Download Windows Desktop Launcher (.bat)
+app.get('/api/download-launcher', (_req, res) => {
+  const batPath = path.resolve(__dirname, 'START_SHOP_POS.bat');
+  res.setHeader('Content-Type', 'application/x-bat');
+  res.setHeader('Content-Disposition', 'attachment; filename="START_SHOP_POS.bat"');
+  res.sendFile(batPath);
+});
+
+// 6. Download Windows Hard Drive Backup Utility (.bat)
+app.get('/api/download-backup-bat', (_req, res) => {
+  const batPath = path.resolve(__dirname, 'BACKUP_LOCAL_DATABASE.bat');
+  res.setHeader('Content-Type', 'application/x-bat');
+  res.setHeader('Content-Disposition', 'attachment; filename="BACKUP_LOCAL_DATABASE.bat"');
+  res.sendFile(batPath);
+});
+
+// 7. Device lock settings endpoint
+app.get('/api/device-lock', (_req, res) => {
+  const lock = readLocalJson('device_lock.json', {
+    isDeviceLockEnabled: false,
+    authorizedDeviceId: '',
+    authorizedDeviceName: 'Shop Counter PC (Default)',
+    authorizedAt: null,
+  });
+  res.json({ success: true, data: lock });
+});
+
+app.post('/api/device-lock/save', (req, res) => {
+  try {
+    const config = req.body;
+    saveLocalJson('device_lock.json', config);
+    res.json({ success: true, message: 'Shop computer binding updated', data: config });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
 });
 
 // Dedicated Print Window Endpoints (Opens outside iframe for native printer dialog)

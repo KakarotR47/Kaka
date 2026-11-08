@@ -166,3 +166,11 @@ export interface HeldOrder {
   items: CartItem[];
   subtotal: number;
 }
+
+export interface DeviceSecurityConfig {
+  isDeviceLockEnabled: boolean;
+  authorizedDeviceId: string;
+  authorizedDeviceName: string;
+  authorizedAt?: string;
+  isLocalOnlyMode?: boolean;
+}

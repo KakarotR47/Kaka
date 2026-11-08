@@ -12,6 +12,7 @@ import { StoreSettingsView } from './components/settings/StoreSettings';
 import { ReceiptModal } from './components/receipts/ReceiptModal';
 import { ProfileModal } from './components/profile/ProfileModal';
 import { AddProductModal } from './components/inventory/AddProductModal';
+import { DeviceLockScreen } from './components/security/DeviceLockScreen';
 
 const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('pos');
@@ -34,6 +35,7 @@ const AppContent: React.FC = () => {
     closeAddProductModal,
     addProductInitialCategory,
     isOwner,
+    isThisDeviceAuthorized,
   } = useShop();
 
   // Apply dark class to document root
@@ -46,6 +48,11 @@ const AppContent: React.FC = () => {
       localStorage.setItem('shopkeep_theme', 'light');
     }
   }, [isDarkMode]);
+
+  // If this computer is unauthorized (Shop Computer Only mode is active), show lock screen
+  if (!isThisDeviceAuthorized) {
+    return <DeviceLockScreen />;
+  }
 
   // Isolate print target when receipt modal is active
   useEffect(() => {
